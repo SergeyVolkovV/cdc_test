@@ -6,9 +6,9 @@
       "name" : "shipments",
       "target": [
         {
-          "taget_name": "tagret_postgres",
+          "target_name": "tagret_postgres",
           "target_schema": "public",
-          "tagret_table": "shipments"
+          "target_table": "shipments"
         }
       ],
       "pk":"shipment_id",

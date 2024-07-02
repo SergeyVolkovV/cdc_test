@@ -31,13 +31,31 @@ import static org.apache.flink.streaming.api.environment.CheckpointConfig.Extern
 
 public class PostgresMirrorLogCDC {
 
+    private static final String CONF_PATH = "-conf";
+    private static final String CP_PATH = "-cp";
+
     public static void main(String[] args) throws Exception {
 
+        String conf_path = "./conf/conf.json";
+        String cp_path = "file:///Users/sv/App/flink-1.18.0/cp";
 
+        for(int i=0; i<args.length; i+=2)
+        {
+            String key = args[i];
+            String value = args[i+1];
+
+            switch (key)
+            {
+                case CONF_PATH : conf_path = value; break;
+                case CP_PATH : cp_path = value; break;
+            }
+        }
+
+        Tables tableDefinition = new Tables(conf_path);
 
         DebeziumDeserializationSchema<String> deserializer =
                 new JsonDebeziumDeserializationSchema();
-        Tables tableDefinition = new Tables();
+
 
         JdbcIncrementalSource<String> postgresIncrementalSource =
                 PostgresSourceBuilder.PostgresIncrementalSource.<String>builder()
@@ -60,7 +78,7 @@ public class PostgresMirrorLogCDC {
 
         Configuration config = new Configuration();
         config.set(CheckpointingOptions.CHECKPOINT_STORAGE, "filesystem");
-        config.set(CheckpointingOptions.CHECKPOINTS_DIRECTORY, "file:///Users/sv/App/flink-1.18.0/cp");
+        config.set(CheckpointingOptions.CHECKPOINTS_DIRECTORY, cp_path);
         env.configure(config);
         CheckpointConfig conf = env.getCheckpointConfig();
             conf.setExternalizedCheckpointCleanup(RETAIN_ON_CANCELLATION);
