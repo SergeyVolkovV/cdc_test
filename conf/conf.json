@@ -1,0 +1,60 @@
+{
+  "source": "source_postgres",
+  "tables": [
+    {
+      "schema": "public",
+      "name" : "shipments",
+      "target": [
+        {
+          "taget_name": "tagret_postgres",
+          "target_schema": "public",
+          "tagret_table": "shipments"
+        }
+      ],
+      "pk":"shipment_id",
+      "fields": [
+        {
+          "type": "long",
+          "field": "shipment_id"
+        },
+        {
+          "type": "long",
+          "field": "order_id"
+        },
+        {
+          "type": "string",
+          "field": "origin"
+        },
+        {
+          "type": "string",
+          "field": "destination"
+        },
+        {
+          "type": "boolean",
+          "field": "is_arrived"
+        }
+      ]
+    },
+    {
+      "schema": "public",
+      "name" : "test",
+      "pk":"id",
+      "fields": [
+        {
+          "type": "long",
+          "field": "id"
+        },
+        {
+          "type": "string",
+          "field": "value"
+        },
+        {
+          "type": "string",
+          "field": "value2"
+        }
+      ]
+    }
+    ]
+
+
+}
