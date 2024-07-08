@@ -4,29 +4,29 @@
     {
       "schema": "public",
       "name" : "shipments",
-      "target": [
+      "target":
         {
-          "target_name": "tagret_postgres",
-          "target_schema": "public",
-          "target_table": "shipments"
+          "target_name": "target_postgres",
+          "target_table_mirror": "public.shipments",
+          "target_table_log" : "public.shipments_log"
         }
-      ],
+      ,
       "pk":"shipment_id",
       "fields": [
         {
-          "type": "long",
+          "type": "serial",
           "field": "shipment_id"
         },
         {
-          "type": "long",
+          "type": "serial",
           "field": "order_id"
         },
         {
-          "type": "string",
+          "type": "varchar",
           "field": "origin"
         },
         {
-          "type": "string",
+          "type": "varchar",
           "field": "destination"
         },
         {
@@ -38,23 +38,87 @@
     {
       "schema": "public",
       "name" : "test",
+      "target":
+      {
+        "target_name": "target_postgres",
+        "target_table_mirror": "public.test",
+        "target_table_log" : "public.test_log"
+      },
       "pk":"id",
       "fields": [
         {
-          "type": "long",
+          "type": "serial",
           "field": "id"
         },
         {
-          "type": "string",
-          "field": "value"
+          "type": "smallint",
+          "field": "smallint_val"
         },
         {
-          "type": "string",
-          "field": "value2"
+          "type": "integer",
+          "field": "integer_val"
+        },
+        {
+          "type": "bigint",
+          "field": "bigint_val"
+        },
+        {
+          "type": "decimal",
+          "field": "decimal_val"
+        },
+        {
+          "type": "numeric",
+          "field": "numeric_val"
+        },
+        {
+          "type": "real",
+          "field": "real_val"
+        },
+        {
+          "type": "double",
+          "field": "double_val"
+        },
+        {
+          "type": "smallserial",
+          "field": "smallserial_val"
+        },
+        {
+          "type": "serial",
+          "field": "serial_val"
+        },
+        {
+          "type": "bigserial",
+          "field": "bigserial_val"
+        },
+        {
+          "type": "varchar",
+          "field": "varchar_val"
+        },
+        {
+          "type": "character",
+          "field": "character_val"
+        },
+        {
+          "type": "char",
+          "field": "char_val"
+        },
+        {
+          "type": "bpchar",
+          "field": "bpchar_val"
+        },
+        {
+          "type": "text",
+          "field": "text_val"
+        },
+        {
+          "type": "boolean",
+          "field": "boolean_val"
         }
       ]
     }
     ]
-
-
 }
+
+
+
+
