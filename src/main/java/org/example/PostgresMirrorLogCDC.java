@@ -21,11 +21,17 @@ import javax.json.JsonReader;
 import java.io.StringReader;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.sql.Date;
 import java.sql.Types;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Objects;
-import java.util.Properties;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.text.ParseException;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.*;
+import java.math.BigDecimal;
+import java.util.concurrent.TimeUnit;
 
 import static org.apache.flink.streaming.api.environment.CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION;
 
@@ -61,7 +67,7 @@ public class PostgresMirrorLogCDC {
                 new JsonDebeziumDeserializationSchema();
 
         Properties debeziumProperties = new Properties();
-        debeziumProperties.setProperty("decimal.handling.mode", "double");
+        debeziumProperties.setProperty("decimal.handling.mode", "string");
 
         Credentials srcCred = new Credentials();
         srcCred.setCredentialFromFile(secretPath+"/"+tableDefinition.tablesSource+".properties");
@@ -296,18 +302,24 @@ public class PostgresMirrorLogCDC {
                     statement.setFloat(field.ord,
                             row.getJsonNumber(field.name).numberValue().floatValue());
                     break;
-                case "decimal":
                 case "double":
-                case "numeric":
-                case "money":
                     statement.setDouble(field.ord,
                             row.getJsonNumber(field.name).numberValue().doubleValue());
                     break;
+                case "decimal":
+                case "numeric":
+
+
+                    statement.setBigDecimal(field.ord,
+                            new BigDecimal(row.getString(field.name)));
+                    break;
+
                 case "char":
                 case "bpchar":
                 case "character":
                 case "text":
                 case "varchar":
+                case "timestamptz":
                     statement.setString(field.ord,
                             row.getString(field.name));
                     break;
@@ -315,6 +327,28 @@ public class PostgresMirrorLogCDC {
                     statement.setBoolean(field.ord,
                             row.getBoolean(field.name));
                     break;
+                case "timestamp":
+
+                    Timestamp t =  Timestamp.from(Instant.EPOCH.plus(
+                            Duration.ofNanos(
+                                    TimeUnit.MICROSECONDS.toNanos(
+                                            Long.parseLong(
+                                                    String.format("%-16s",Long.toString(row.getJsonNumber(field.name).longValue() )).replace(" ","0")
+                                            )) ) ));
+
+
+                    statement.setTimestamp(field.ord, t, Calendar.getInstance(TimeZone.getTimeZone("UTC")));
+                    break;
+                case "date":
+
+                    java.sql.Date d = new java.sql.Date( Date.from(Instant.EPOCH.plus(
+                            Duration.ofDays(
+                                            row.getJsonNumber(field.name).intValue()) ) ).getTime());
+
+
+                    statement.setDate(field.ord, d, Calendar.getInstance(TimeZone.getTimeZone("UTC")));
+                    break;
+
             }
         else
             setParameterNull(statement, field);
@@ -347,7 +381,6 @@ public class PostgresMirrorLogCDC {
             case "decimal":
             case "double":
             case "numeric":
-            case "money":
                 statement.setNull(field.ord,
                         Types.DOUBLE);
                 break;
@@ -356,6 +389,7 @@ public class PostgresMirrorLogCDC {
             case "character":
             case "text":
             case "varchar":
+            case "timestamptz":
                 statement.setNull(field.ord,
                         Types.VARCHAR);
                 break;
@@ -363,6 +397,15 @@ public class PostgresMirrorLogCDC {
                 statement.setNull(field.ord,
                         Types.BOOLEAN);
                 break;
+            case "timestamp":
+                statement.setNull(field.ord,
+                        Types.TIMESTAMP);
+                break;
+            case "date":
+                statement.setNull(field.ord,
+                        Types.DATE);
+                break;
+
 
 
 

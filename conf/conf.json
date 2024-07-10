@@ -90,6 +90,7 @@
           "type": "bigserial",
           "field": "bigserial_val"
         },
+
         {
           "type": "varchar",
           "field": "varchar_val"
@@ -113,6 +114,22 @@
         {
           "type": "boolean",
           "field": "boolean_val"
+        },
+        {
+          "type": "timestamp",
+          "field": "timestamp_val"
+        },
+        {
+          "type": "timestamp",
+          "field": "timestamp0_val"
+        },
+        {
+          "type": "timestamptz",
+          "field": "timestamptz_val"
+        },
+        {
+          "type": "date",
+          "field": "date_val"
         }
       ]
     }

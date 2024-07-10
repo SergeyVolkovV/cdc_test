@@ -129,7 +129,21 @@ public class Tables implements Serializable{
             for (JsonValue field : table.getJsonArray("fields")) {
 
                 String fieldName = field.asJsonObject().getString("field");
-                listUsingPart.add("? as "+fieldName);
+                String fieldType = field.asJsonObject().getString("type");
+                switch (fieldType) {
+                    case "timestamp":
+                        listUsingPart.add("?::timestamp as " + fieldName);
+                        break;
+                    case "timestamptz":
+                        listUsingPart.add("?::timestamptz as " + fieldName);
+                        break;
+                    case "date":
+                        listUsingPart.add("?::date as " + fieldName);
+                        break;
+                    default:
+                        listUsingPart.add("? as " + fieldName);
+                        break;
+                }
                 if (!Objects.equals(fieldName, pkName))
                     listUpdatePart.add("\n  "+fieldName+" = s."+fieldName);
                 listInsertPart.add(fieldName);
@@ -171,14 +185,41 @@ public class Tables implements Serializable{
             for (JsonValue field : table.getJsonArray("fields")) {
 
                 String fieldName = field.asJsonObject().getString("field");
+                String fieldType = field.asJsonObject().getString("type");
                 listInsertPart.add("before_" + fieldName);
+                switch (fieldType) {
+                    case "timestamp":
+                        listValuesPart.add("?::timestamp " );
+                        break;
+                    case "timestamptz":
+                        listValuesPart.add("?::timestamptz " );
+                        break;
+                    case "date":
+                        listValuesPart.add("?::date " );
+                        break;
+                    default:
+                        listValuesPart.add("? ");
+                        break;
+                }
 
-                listValuesPart.add("? ");
                 ind++;
                 fields.add(new Field(ind, fieldName, getParamsType(field.asJsonObject().getString("type")), "before"));
                 listInsertPart.add("after_" + fieldName);
 
-                listValuesPart.add("? ");
+                switch (fieldType) {
+                    case "timestamp":
+                        listValuesPart.add("?::timestamp " );
+                        break;
+                    case "timestamptz":
+                        listValuesPart.add("?::timestamptz " );
+                        break;
+                    case "date":
+                        listValuesPart.add("?::date " );
+                        break;
+                    default:
+                        listValuesPart.add("? ");
+                        break;
+                }
                 ind++;
                 fields.add(new Field(ind, fieldName, getParamsType(field.asJsonObject().getString("type")), "after"));
 
