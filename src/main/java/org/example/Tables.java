@@ -140,6 +140,12 @@ public class Tables implements Serializable{
                     case "date":
                         listUsingPart.add("?::date as " + fieldName);
                         break;
+                    case "time":
+                        listUsingPart.add("?::time as " + fieldName);
+                        break;
+                    case "timetz":
+                        listUsingPart.add("?::timetz as " + fieldName);
+                        break;
                     default:
                         listUsingPart.add("? as " + fieldName);
                         break;
@@ -197,6 +203,12 @@ public class Tables implements Serializable{
                     case "date":
                         listValuesPart.add("?::date " );
                         break;
+                    case "time":
+                        listValuesPart.add("?::time " );
+                        break;
+                    case "timetz":
+                        listValuesPart.add("?::timetz " );
+                        break;
                     default:
                         listValuesPart.add("? ");
                         break;
@@ -215,6 +227,12 @@ public class Tables implements Serializable{
                         break;
                     case "date":
                         listValuesPart.add("?::date " );
+                        break;
+                    case "time":
+                        listValuesPart.add("?::time " );
+                        break;
+                    case "timetz":
+                        listValuesPart.add("?::timetz " );
                         break;
                     default:
                         listValuesPart.add("? ");

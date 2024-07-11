@@ -68,6 +68,7 @@ public class PostgresMirrorLogCDC {
 
         Properties debeziumProperties = new Properties();
         debeziumProperties.setProperty("decimal.handling.mode", "string");
+        debeziumProperties.setProperty("time.precision.mode", "adaptive_time_microseconds");
 
         Credentials srcCred = new Credentials();
         srcCred.setCredentialFromFile(secretPath+"/"+tableDefinition.tablesSource+".properties");
@@ -163,10 +164,10 @@ public class PostgresMirrorLogCDC {
                                                     .withMaxRetries(1)
                                                     .build(),
                                             new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
-                                                    .withUrl("jdbc:postgresql://localhost:5433/ods")
-                                                    .withDriverName("org.postgresql.Driver")
-                                                    .withUsername("test")
-                                                    .withPassword("test")
+                                                    .withUrl(tgtProp.getProperty("databaseUrl"))
+                                                    .withDriverName(tgtProp.getProperty("driver"))
+                                                    .withUsername(tgtProp.getProperty("username"))
+                                                    .withPassword(tgtProp.getProperty("password"))
                                                     .withConnectionCheckTimeoutSeconds(60)
                                                     .build()
                                     )
@@ -320,6 +321,7 @@ public class PostgresMirrorLogCDC {
                 case "text":
                 case "varchar":
                 case "timestamptz":
+                case "timetz":
                     statement.setString(field.ord,
                             row.getString(field.name));
                     break;
@@ -347,6 +349,18 @@ public class PostgresMirrorLogCDC {
 
 
                     statement.setDate(field.ord, d, Calendar.getInstance(TimeZone.getTimeZone("UTC")));
+                    break;
+                case "time":
+
+                    java.sql.Time time = new java.sql.Time( Date.from(Instant.EPOCH.plus(
+                            Duration.ofNanos(
+                                    TimeUnit.MICROSECONDS.toNanos(
+                                            Long.parseLong(
+                                                    String.format("%-11s",Long.toString(row.getJsonNumber(field.name).longValue() )).replace(" ","0")
+                                            )) ) ) ).getTime());
+
+                    System.out.println("TIME: "+time);
+                    statement.setTime(field.ord, time, Calendar.getInstance(TimeZone.getTimeZone("UTC")));
                     break;
 
             }
@@ -390,6 +404,7 @@ public class PostgresMirrorLogCDC {
             case "text":
             case "varchar":
             case "timestamptz":
+            case "timetz":
                 statement.setNull(field.ord,
                         Types.VARCHAR);
                 break;
@@ -404,6 +419,10 @@ public class PostgresMirrorLogCDC {
             case "date":
                 statement.setNull(field.ord,
                         Types.DATE);
+                break;
+            case "time":
+                statement.setNull(field.ord,
+                        Types.TIME);
                 break;
 
 

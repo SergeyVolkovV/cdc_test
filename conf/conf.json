@@ -130,6 +130,15 @@
         {
           "type": "date",
           "field": "date_val"
+        },
+        {
+          "type": "time",
+          "field": "time_val"
+        }
+      ,
+        {
+          "type": "timetz",
+          "field": "timetz_val"
         }
       ]
     }
