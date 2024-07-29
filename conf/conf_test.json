@@ -3,7 +3,47 @@
   "tables": [
     {
       "schema": "public",
+      "name" : "shipments",
+      "target":
+        {
+          "target_name": "target_postgres",
+          "target_table_mirror": "public.shipments",
+          "target_table_log" : "public.shipments_log"
+        }
+      ,
+      "pk":"shipment_id",
+      "fields": [
+        {
+          "type": "serial",
+          "field": "shipment_id"
+        },
+        {
+          "type": "serial",
+          "field": "order_id"
+        },
+        {
+          "type": "varchar",
+          "field": "origin"
+        },
+        {
+          "type": "varchar",
+          "field": "destination"
+        },
+        {
+          "type": "boolean",
+          "field": "is_arrived"
+        }
+      ]
+    },
+    {
+      "schema": "public",
       "name" : "test",
+      "target":
+      {
+        "target_name": "target_postgres",
+        "target_table_mirror": "public.test",
+        "target_table_log" : "public.test_log"
+      },
       "pk":"id",
       "fields": [
         {
@@ -100,47 +140,34 @@
           "type": "timetz",
           "field": "timetz_val"
         }
+      ]
+    },
+    ,
+    {
+      "schema": "public",
+      "name": "test2",
+      "pk": "id",
+      "fields": [
+        {
+          "type": "integer",
+          "field": "id"
+        },
+        {
+          "type": "text",
+          "field": "val1"
+        },
+        {
+          "type": "text",
+          "field": "val2"
+        }
       ],
-      "target":
-              [
-                  {
-                    "notation": "oracle",
-                    "name": "target_oracle",
-                    "table": "test.test",
-                    "type": "mirror",
-                    "fields": ["id", "smallint_val", "integer_val", "bigint_val", "decimal_val",
-                      "numeric_val", "real_val", "double_val", "smallserial_val", "serial_val", "bigserial_val",
-                      "varchar_val", "character_val", "char_val", "bpchar_val", "text_val", "boolean_val",
-                      "timestamp_val",  "timestamp0_val"
-                    ]
-                  },
-                  {
-                    "notation": "oracle",
-                    "name": "target_oracle",
-                    "table": "test.test_log",
-                    "type": "log",
-                    "fields": ["after_id", "after_smallint_val", "after_integer_val",
-                      "before_id", "before_smallint_val", "before_integer_val"
-                    ]
-                  },
-                  {
-                    "notation": "postgresql",
-                    "name": "target_postgres",
-                    "table": "public.test"
-                  },
-                  {
-                    "notation": "postgresql",
-                    "name": "target_postgres",
-                    "type": "log",
-                    "table": "public.test_log",
-                    "map": [
-                      "after.*:after_*",
-                      "before.id:before_id",
-                      "before.smallint_val:before_smallint_val",
-                      "before.smallint_val:before_bigint_val"
-                    ]
-                  }
-              ]
+      "target": [
+        {
+          "notation": "postgresql",
+          "name": "target_postgres",
+          "table": "public.test2"
+        }
+      ]
     }
     ]
 }

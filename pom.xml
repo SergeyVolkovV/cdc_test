@@ -14,11 +14,6 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
     <dependencies>
-        <dependency>
-            <groupId>org.apache.flink</groupId>
-            <artifactId>flink-connector-mysql-cdc</artifactId>
-            <version>3.1.1</version>
-        </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.flink/flink-streaming-java -->
         <dependency>
             <groupId>org.apache.flink</groupId>
@@ -61,6 +56,11 @@
             <version>42.7.3</version>
         </dependency>
         <dependency>
+            <groupId>com.oracle.database.jdbc</groupId>
+            <artifactId>ojdbc8</artifactId>
+            <version>23.4.0.24.05</version>
+        </dependency>
+        <dependency>
             <groupId>javax.json</groupId>
             <artifactId>javax.json-api</artifactId>
             <version>1.1.2</version>
@@ -75,6 +75,7 @@
             <artifactId>flink-connector-postgres-cdc</artifactId>
             <version>3.1.1</version>
         </dependency>
+
 
     </dependencies>
 

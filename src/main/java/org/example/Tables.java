@@ -1,6 +1,7 @@
 package org.example;
 
 
+
 import java.io.Serializable;
 import javax.json.*;
 import java.io.FileInputStream;
@@ -14,38 +15,429 @@ public class Tables implements Serializable{
     List<String>  tableList;
     String tablesSource;
 
+
     public static class Field implements Serializable{
         Integer ord;
-        String name;
+        String source_name;
+        String target_name;
         String type;
         String stateField;
 
-        public Field(Integer ord, String name, String type, String stateField)
-        {
-            this.ord=ord;
-            this.name = name;
-            this.type = type;
-            this.stateField=stateField;
-        }
 
+
+        public Field(Integer ord, String source_name, String target_name, String type, String stateField) {
+            this.ord = ord;
+            this.source_name = source_name;
+            this.target_name = target_name;
+            this.type = type;
+            this.stateField = stateField;
+        }
 
 
         @Override
         public String toString() {
             return "Field{" +
                     "ord=" + ord +
-                    ", name='" + name + '\'' +
+                    ", source_name='" + source_name + '\'' +
+                    ", target_name='" + target_name + '\'' +
                     ", type='" + type + '\'' +
                     ", stateField='" + stateField + '\'' +
                     '}';
         }
     }
 
-    HashMap<String,Properties> tableProperties = new HashMap<>();
-    HashMap<String,String> sqlMergeStatement =new HashMap<>();
-    HashMap<String, List<Field>> sqlMergeParameters = new HashMap<>();
-    HashMap<String,String> sqlLogInsertStatement =new HashMap<>();
-    HashMap<String, List<Field>> sqlLogInsertParameters = new HashMap<>();
+    public static class Target implements Serializable {
+        String targetName;
+        String targetTable;
+        String targetNotation;
+        String targetType;
+        List<String> targetFields;
+        List<String> mapFields;
+        List<Field> fields = new ArrayList<>();
+        String sqlStatement;
+
+        private final JsonArray sourceFields;
+        private final String pkField;
+
+
+        public Target(String targetName, String targetTable, String targetNotation, String targetType,
+                      List<String> targetFields, List<String> mapFields, JsonArray sourceFields, String pkField) {
+            this.targetName = targetName;
+            this.targetTable = targetTable;
+            if (Objects.equals(targetNotation, ""))
+                this.targetNotation = "postgresql";
+            else
+                this.targetNotation = targetNotation;
+            if (Objects.equals(targetType, ""))
+                this.targetType = "mirror";
+            else
+                this.targetType = targetType;
+            this.targetFields = targetFields;
+            this.mapFields = mapFields;
+            this.sourceFields=sourceFields;
+            this.pkField=pkField;
+            setColumnsMap();
+            setSinkSql();
+
+        }
+
+
+        @Override
+        public String toString() {
+            return "Target{" +
+                    "targetName='" + targetName + '\'' +
+                    ", targetTable='" + targetTable + '\'' +
+                    ", targetNotation='" + targetNotation + '\'' +
+                    ", targetType='" + targetType + '\'' +
+                    ", targetFields=" + targetFields +
+                    ", mapFields=" + mapFields +
+                    ", sqlStatement='" + sqlStatement + '\'' +
+                    '}';
+        }
+
+        private void setSinkSql() {
+            if (Objects.equals(targetNotation, "postgresql"))
+            {
+
+                switch (targetType){
+                    case "mirror":
+                        setSqlMirrorPostgres();
+                        break;
+                    case "log":
+                        setSqlLogPostgres();
+                        break;
+                }
+            }
+
+            if (Objects.equals(targetNotation, "oracle"))
+            {
+
+                switch (targetType){
+                    case "mirror":
+                        setSqlMirrorOracle();
+                        break;
+                    case "log":
+                        setSqlLogOracle();
+                        break;
+                }
+            }
+        }
+
+        private void setColumnsMap(){
+            String after_prefix="after_";
+            String before_prefix="before_";
+            boolean all_after = false;
+            boolean all_before = false;
+            int indField=1;
+            if (Objects.equals(targetType, "mirror"))
+            {
+
+                 after_prefix="";
+                 before_prefix="";
+
+            }
+
+            if (!mapFields.isEmpty()) {
+                List<List<String>> listsFields = getListByIndMap(mapFields);
+                /*all check */
+                int ind=0;
+                for (String s: listsFields.get(1)){
+                    if (Objects.equals(s, "*")) {
+                       if (Objects.equals(listsFields.get(0).get(ind), "before"))
+                       {
+                           all_before=true;
+                           before_prefix = listsFields.get(2).get(ind).replace("*","");
+                       }
+                        if (Objects.equals(listsFields.get(0).get(ind), "after"))
+                        {
+                            all_after=true;
+                            after_prefix = listsFields.get(2).get(ind).replace("*","");
+                        }
+                    }
+                    ind++;
+
+                }
+
+
+                /*get defined before fields*/
+                if (!all_before){
+                    ind=0;
+                    for (String stateType: listsFields.get(0)) {
+
+                        if (Objects.equals(stateType, "before")&&(targetFields.isEmpty()||targetFields.contains(listsFields.get(2).get(ind)))) {
+                            fields.add(new Field(indField++,
+                                    listsFields.get(1).get(ind),
+                                    listsFields.get(2).get(ind),
+                                    getTypeSourceColumn(listsFields.get(1).get(ind)),
+                                    "before"
+                                    ));
+                        }
+                        ind++;
+                    }
+                }
+                /*get defined before fields*/
+                if (!all_after){
+                    ind=0;
+                    for (String stateType: listsFields.get(0)) {
+
+                        if (Objects.equals(stateType, "after")&&(targetFields.isEmpty()||targetFields.contains(listsFields.get(2).get(ind)))) {
+                            fields.add(new Field(indField++,
+                                    listsFields.get(1).get(ind),
+                                    listsFields.get(2).get(ind),
+                                    getTypeSourceColumn(listsFields.get(1).get(ind)),
+                                    "after"
+                            ));
+                        }
+                        ind++;
+                    }
+                }
+            }
+            else
+            {
+                all_before = !Objects.equals(targetType, "mirror");
+                all_after = true;
+            }
+            /*get all before fields*/
+            if (all_before) {
+                for (JsonValue field : sourceFields)
+                {
+                    String fieldName = field.asJsonObject().getString("field");
+                    String fieldType = field.asJsonObject().getString("type");
+                    if (targetFields.isEmpty()||targetFields.contains(before_prefix+fieldName))
+                        fields.add(new Field(indField++,
+                                fieldName,
+                                before_prefix+fieldName,
+                                fieldType,
+                                "before"
+                        ));
+                }
+            }
+            /*get all after fields*/
+            if (all_after) {
+                for (JsonValue field : sourceFields)
+                {
+                    String fieldName = field.asJsonObject().getString("field");
+                    String fieldType = field.asJsonObject().getString("type");
+                    if (targetFields.isEmpty()||targetFields.contains(after_prefix+fieldName))
+                        fields.add(new Field(indField++,
+                                fieldName,
+                                after_prefix+fieldName,
+                                fieldType,
+                                "after"
+                        ));
+                }
+            }
+
+            /*system fields*/
+            fields.add(new Field(indField++,"dbz_op_type","dbz_op_type","string", "common"));
+
+            if (Objects.equals(targetType, "log"))
+            {
+                fields.add(new Field(indField++,"dbz_ts_ms","dbz_ts_ms","long", "common"));
+                fields.add(new Field(indField,"src_ts_ms","src_ts_ms","long", "common"));
+
+            }
+
+
+        }
+
+        private String getTypeSourceColumn(String sourceName){
+            for (JsonValue field : sourceFields) {
+                String fieldName = field.asJsonObject().getString("field");
+                String fieldType = field.asJsonObject().getString("type");
+                if (Objects.equals(fieldName, sourceName))
+                    return fieldType;
+            }
+            return "unknown";
+        }
+
+        private List<List<String>> getListByIndMap(List<String> list){
+            List<String> indList1 = new ArrayList<>();
+            List<String> indList2 = new ArrayList<>();
+            List<String> indList3 = new ArrayList<>();
+            for (String l: list)
+            {
+                indList1.add(l.split(":")[0].split("\\.")[0]);
+                indList2.add(l.split(":")[0].split("\\.")[1]);
+                indList3.add(l.split(":")[1]);
+            }
+            return  Arrays.asList(indList1, indList2, indList3);
+        }
+
+        private void setSqlMirrorPostgres(){
+
+            List<String> listUsingPart = new ArrayList<>();
+            List<String> listUpdatePart = new ArrayList<>();
+            List<String> listInsertPart = new ArrayList<>();
+            List<String> listInsertValuesPart = new ArrayList<>();
+            String pkTargetName=this.pkField;
+            for (Field field : fields) {
+                    String castVar = castPostgres(field.type);
+                    listUsingPart.add(castVar + " as " + field.source_name);
+                if (!Objects.equals(field.stateField, "common")) {
+
+                        if (!Objects.equals(field.source_name, this.pkField)) {
+                            listUpdatePart.add("\n  " + field.target_name + " = s." + field.source_name);
+                        }
+                        else
+                        {
+                            pkTargetName = field.target_name;
+                        }
+
+
+                        listInsertPart.add(field.target_name);
+                        listInsertValuesPart.add("s." + field.source_name);
+                    }
+            }
+
+
+
+
+            this.sqlStatement= String.format("MERGE INTO %s as t\n", targetTable) +
+                    String.format("USING (select %s  ) as  s\n", String.join(",", listUsingPart)) +
+                    String.format("ON t.%s = s.%s \n", pkTargetName, pkField) +
+                    "WHEN MATCHED AND dbz_op_type='d' THEN \n" +
+                    "  DELETE\n" +
+                    "WHEN MATCHED THEN \n  UPDATE SET " +
+                    String.join(",", listUpdatePart) +
+                    "\nWHEN NOT MATCHED THEN \n" +
+                    String.format("INSERT (%s) \n", String.join(",", listInsertPart)) +
+                    String.format("VALUES (%s) \n", String.join(",", listInsertValuesPart));
+
+        }
+
+        private void setSqlMirrorOracle(){
+
+            List<String> listUsingPart = new ArrayList<>();
+            List<String> listUpdatePart = new ArrayList<>();
+            List<String> listInsertPart = new ArrayList<>();
+            List<String> listInsertValuesPart = new ArrayList<>();
+            String pkTargetName=this.pkField;
+            for (Field field : fields) {
+                String castVar = castOracle(field.type);
+                listUsingPart.add(castVar + " as " + field.source_name);
+                if (!Objects.equals(field.stateField, "common")) {
+
+                    if (!Objects.equals(field.source_name, this.pkField)) {
+                        listUpdatePart.add("\n  " + field.target_name + " = s." + field.source_name);
+                    }
+                    else
+                    {
+                        pkTargetName = field.target_name;
+                    }
+
+
+                    listInsertPart.add(field.target_name);
+                    listInsertValuesPart.add("s." + field.source_name);
+                }
+            }
+
+
+
+
+            this.sqlStatement= String.format("MERGE INTO %s  t\n", targetTable) +
+                    String.format("USING (select %s  from dual)   s\n", String.join(",", listUsingPart)) +
+                    String.format("ON (t.%s = s.%s) \n", pkTargetName, pkField) +
+                    "WHEN MATCHED THEN\n" +
+                    "  UPDATE SET \n" +
+                    String.join(",", listUpdatePart) +
+                    "\nDELETE WHERE (dbz_op_type='d') \n"+
+                    "WHEN NOT MATCHED THEN \n" +
+                    String.format("INSERT (%s) \n", String.join(",", listInsertPart)) +
+                    String.format("VALUES (%s) \n", String.join(",", listInsertValuesPart));
+
+        }
+
+        private void setSqlLogPostgres(){
+
+
+            List<String> listInsertPart = new ArrayList<>();
+            List<String> listValuesPart = new ArrayList<>();
+
+            for (Field field : fields) {
+                listInsertPart.add(field.target_name);
+                String castVar = castPostgres(field.type);
+                listValuesPart.add(castVar);
+
+            }
+
+
+            StringBuilder sqlLog = new StringBuilder();
+            sqlLog.append(String.format("INSERT INTO %s \n", targetTable));
+            sqlLog.append(String.format("(%s)\n", String.join(",", listInsertPart)));
+            sqlLog.append("VALUES \n");
+            sqlLog.append(String.format("(%s)\n", String.join(",", listValuesPart)));
+            System.out.println(sqlLog);
+            this.sqlStatement= String.valueOf(sqlLog);
+        }
+
+        private void setSqlLogOracle(){
+
+
+            List<String> listInsertPart = new ArrayList<>();
+            List<String> listValuesPart = new ArrayList<>();
+
+            for (Field field : fields) {
+                listInsertPart.add(field.target_name);
+                String castVar = castOracle(field.type);
+                listValuesPart.add(castVar);
+
+            }
+
+
+            StringBuilder sqlLog = new StringBuilder();
+            sqlLog.append(String.format("INSERT INTO %s \n", targetTable));
+            sqlLog.append(String.format("(%s)\n", String.join(",", listInsertPart)));
+            sqlLog.append("VALUES \n");
+            sqlLog.append(String.format("(%s)\n", String.join(",", listValuesPart)));
+            System.out.println(sqlLog);
+            this.sqlStatement= String.valueOf(sqlLog);
+
+
+        }
+
+        private static String castPostgres(String fieldType) {
+            String var = "";
+            switch (fieldType) {
+                case "timestamp":
+                    var ="?::timestamp " ;
+                    break;
+                case "timestamptz":
+                    var +="?::timestamptz ";
+                    break;
+                case "date":
+                    var +="?::date ";
+                    break;
+                case "time":
+                    var +="?::time ";
+                    break;
+                case "timetz":
+                    var +="?::timetz ";
+                    break;
+                default:
+                    var +="? ";
+                    break;
+            }
+            return var;
+        }
+
+        private static String castOracle(String fieldType) {
+            String var = "";
+            switch (fieldType) {
+                default:
+                    var +="? ";
+                    break;
+            }
+            return var;
+        }
+
+    }
+
+
+
+
+    HashMap<String, List<Target>> tableProperties  = new HashMap<>();
+
 
 
     public Tables() throws Exception {
@@ -65,10 +457,6 @@ public class Tables implements Serializable{
     public static void main(String[] args) throws Exception {
 
         Tables t = new Tables();
-        System.out.println(t.jsonConf.toString());
-        System.out.println(t.getStringTableList());
-        System.out.println(t.sqlLogInsertStatement);
-        System.out.println(t.sqlLogInsertParameters);
 
     }
 
@@ -107,164 +495,20 @@ public class Tables implements Serializable{
     {
         JsonArray tables = jsonConf.getJsonArray("tables");
         for (JsonValue table : tables) {
-            setTableProperties(table.asJsonObject());
-            setSqlMirror(table.asJsonObject());
-            setSqlLog(table.asJsonObject());
+            String tableName = table.asJsonObject().getString("schema")+"."+table.asJsonObject().getString("name");
+            setTableProperties(table.asJsonObject(), tableName);
         }
 
     }
 
-    private void setSqlMirror(JsonObject table){
-        String tableName = table.asJsonObject().getString("schema")+"."+table.asJsonObject().getString("name");
-        Properties tableProp = tableProperties.get(tableName);
-        if (tableProp.get("target_table_mirror")!="")
-        {
-            String pkName = table.getString("pk");
-            List<String> listUsingPart = new ArrayList<String>();
-            List<String> listUpdatePart = new ArrayList<String>();
-            List<String> listInsertPart = new ArrayList<String>();
-            List<String> listInsertValuesPart = new ArrayList<String>();
-            Integer ind = 0;
-            List<Field> fields = new ArrayList<>();
-            for (JsonValue field : table.getJsonArray("fields")) {
-
-                String fieldName = field.asJsonObject().getString("field");
-                String fieldType = field.asJsonObject().getString("type");
-                switch (fieldType) {
-                    case "timestamp":
-                        listUsingPart.add("?::timestamp as " + fieldName);
-                        break;
-                    case "timestamptz":
-                        listUsingPart.add("?::timestamptz as " + fieldName);
-                        break;
-                    case "date":
-                        listUsingPart.add("?::date as " + fieldName);
-                        break;
-                    case "time":
-                        listUsingPart.add("?::time as " + fieldName);
-                        break;
-                    case "timetz":
-                        listUsingPart.add("?::timetz as " + fieldName);
-                        break;
-                    default:
-                        listUsingPart.add("? as " + fieldName);
-                        break;
-                }
-                if (!Objects.equals(fieldName, pkName))
-                    listUpdatePart.add("\n  "+fieldName+" = s."+fieldName);
-                listInsertPart.add(fieldName);
-                listInsertValuesPart.add("s."+fieldName);
-                ind++;
-                fields.add(new Field(ind,field.asJsonObject().getString("field"),getParamsType(field.asJsonObject().getString("type")) ,"none"));
-            }
-            fields.add(new Field(++ind,"dbz_op_type","string", "common"));
 
 
 
-            StringBuilder sqlMirror =new StringBuilder();
-            sqlMirror.append(String.format("MERGE INTO %s as t\n",tableProp.get("target_table_mirror") ));
-            sqlMirror.append(String.format("USING (select %s ,? as dbz_op_type ) as  s\n",String.join(",", listUsingPart) ));
-            sqlMirror.append(String.format("ON t.%s = s.%s \n",pkName,pkName ));
-            sqlMirror.append("WHEN MATCHED AND dbz_op_type='d' THEN \n");
-            sqlMirror.append("  DELETE\n");
-            sqlMirror.append("WHEN MATCHED THEN \n  UPDATE SET ");
-            sqlMirror.append(String.join(",", listUpdatePart));
-            sqlMirror.append("\nWHEN NOT MATCHED THEN \n");
-            sqlMirror.append(String.format("INSERT (%s) \n",String.join(",", listInsertPart) ));
-            sqlMirror.append(String.format("VALUES (%s) \n",String.join(",", listInsertValuesPart) ));
-            this.sqlMergeStatement.put(tableName,sqlMirror.toString());
-            this.sqlMergeParameters.put(tableName,fields);
-        }
-    }
-
-    private void setSqlLog(JsonObject table){
-
-        String tableName = table.asJsonObject().getString("schema")+"."+table.asJsonObject().getString("name");
-        Properties tableProp = tableProperties.get(tableName);
-        if (tableProp.get("target_table_log")!="") {
-
-            List<String> listInsertPart = new ArrayList<String>();
-            List<String> listValuesPart = new ArrayList<String>();
-
-            Integer ind = 0;
-            List<Field> fields = new ArrayList<>();
-            for (JsonValue field : table.getJsonArray("fields")) {
-
-                String fieldName = field.asJsonObject().getString("field");
-                String fieldType = field.asJsonObject().getString("type");
-                listInsertPart.add("before_" + fieldName);
-                switch (fieldType) {
-                    case "timestamp":
-                        listValuesPart.add("?::timestamp " );
-                        break;
-                    case "timestamptz":
-                        listValuesPart.add("?::timestamptz " );
-                        break;
-                    case "date":
-                        listValuesPart.add("?::date " );
-                        break;
-                    case "time":
-                        listValuesPart.add("?::time " );
-                        break;
-                    case "timetz":
-                        listValuesPart.add("?::timetz " );
-                        break;
-                    default:
-                        listValuesPart.add("? ");
-                        break;
-                }
-
-                ind++;
-                fields.add(new Field(ind, fieldName, getParamsType(field.asJsonObject().getString("type")), "before"));
-                listInsertPart.add("after_" + fieldName);
-
-                switch (fieldType) {
-                    case "timestamp":
-                        listValuesPart.add("?::timestamp " );
-                        break;
-                    case "timestamptz":
-                        listValuesPart.add("?::timestamptz " );
-                        break;
-                    case "date":
-                        listValuesPart.add("?::date " );
-                        break;
-                    case "time":
-                        listValuesPart.add("?::time " );
-                        break;
-                    case "timetz":
-                        listValuesPart.add("?::timetz " );
-                        break;
-                    default:
-                        listValuesPart.add("? ");
-                        break;
-                }
-                ind++;
-                fields.add(new Field(ind, fieldName, getParamsType(field.asJsonObject().getString("type")), "after"));
-
-            }
-            listInsertPart.add("dbz_op_type");
-            listInsertPart.add("dbz_ts_ms");
-            listInsertPart.add("src_ts_ms");
-
-            fields.add(new Field(++ind, "dbz_op_type", "string", "common"));
-            fields.add(new Field(++ind, "dbz_ts_ms", "long", "common"));
-            fields.add(new Field(++ind, "src_ts_ms", "long", "common"));
-
-            listValuesPart.add("? ");
-            listValuesPart.add("? ");
-            listValuesPart.add("? ");
 
 
-            StringBuilder sqlLog = new StringBuilder();
-            sqlLog.append(String.format("INSERT INTO %s \n", tableProp.get("target_table_log")));
-            sqlLog.append(String.format("(%s)\n", String.join(",", listInsertPart)));
-            sqlLog.append("VALUES \n");
-            sqlLog.append(String.format("(%s)\n", String.join(",", listValuesPart)));
-            this.sqlLogInsertStatement.put(tableName, sqlLog.toString());
-            this.sqlLogInsertParameters.put(tableName, fields);
-        }
 
-    }
+
+
 
     public String getStringTableList(){
         return String.join(",", this.tableList);
@@ -272,32 +516,49 @@ public class Tables implements Serializable{
 
 
 
-    private String getParamsType(String type){
-        return type;
-    }
 
-    private void setTableProperties(JsonObject table) {
-        String tableName = table.asJsonObject().getString("schema")+"."+table.asJsonObject().getString("name");
-        Properties prop = new Properties();
-        System.out.println(table);
+    private void setTableProperties(JsonObject table, String tableName ) {
         if (table.asJsonObject().containsKey("target")) {
-            JsonObject tableTarget = table.asJsonObject().get("target").asJsonObject();
-            prop.put("target_name",getJsonValue(tableTarget,"target_name"));
-            prop.put("target_table_mirror",getJsonValue(tableTarget,"target_table_mirror"));
-            prop.put("target_table_log",getJsonValue(tableTarget,"target_table_log"));
+            tableProperties.put(tableName, new ArrayList<>());
+            for (JsonValue tableTarget : table.getJsonArray("target")) {
+
+
+                tableProperties.get(tableName).add(new Target(
+                        getJsonValue(tableTarget.asJsonObject(), "name"),
+                        getJsonValue(tableTarget.asJsonObject(), "table"),
+                        getJsonValue(tableTarget.asJsonObject(), "notation"),
+                        getJsonValue(tableTarget.asJsonObject(), "type"),
+                        getJsonList(tableTarget.asJsonObject(), "fields"),
+                        getJsonList(tableTarget.asJsonObject(), "map"),
+                        table.getJsonArray("fields"),
+                        getJsonValue(table, "pk")
+
+                ));
+            }
 
         }
-        tableProperties.put(tableName,prop);
+
+
 
 
     }
 
     private static String getJsonValue(JsonObject obj, String key) {
-        String value="";
+        String value;
         if ( obj.containsKey(key)&&!obj.isNull(key))
             value= obj.getString(key);
         else
             value="" ;
+        return value;
+    }
+
+    private static List<String> getJsonList(JsonObject obj, String key) {
+        List<String> value= new ArrayList<>();
+        if ( obj.containsKey(key)&&!obj.isNull(key))
+            for (JsonValue val : obj.getJsonArray(key)) {
+                value.add(val.toString().replace("\"",""));
+            }
+
         return value;
     }
 

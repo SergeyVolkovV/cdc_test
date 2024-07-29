@@ -2,6 +2,7 @@ package org.example;
 
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.cdc.connectors.base.source.jdbc.JdbcIncrementalSource;
+import org.apache.flink.cdc.connectors.postgres.PostgreSQLSource;
 import org.apache.flink.cdc.connectors.postgres.source.PostgresSourceBuilder;
 import org.apache.flink.cdc.debezium.DebeziumDeserializationSchema;
 import org.apache.flink.cdc.debezium.JsonDebeziumDeserializationSchema;
@@ -14,19 +15,14 @@ import org.apache.flink.connector.jdbc.JdbcExecutionOptions;
 import org.apache.flink.connector.jdbc.JdbcSink;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.source.SourceFunction;
 
 import javax.json.Json;
 import javax.json.JsonObject;
 import javax.json.JsonReader;
 import java.io.StringReader;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-import java.sql.Timestamp;
+import java.sql.*;
 import java.sql.Date;
-import java.sql.Types;
-import java.text.DecimalFormat;
-import java.text.DecimalFormatSymbols;
-import java.text.ParseException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
@@ -70,11 +66,12 @@ public class PostgresMirrorLogCDC {
         debeziumProperties.setProperty("decimal.handling.mode", "string");
         debeziumProperties.setProperty("time.precision.mode", "adaptive_time_microseconds");
 
+        /*user defined PK works only for deprecated SourceFunction*/
+//        debeziumProperties.setProperty("message.key.columns","public.text2:id");
+
         Credentials srcCred = new Credentials();
         srcCred.setCredentialFromFile(secretPath+"/"+tableDefinition.tablesSource+".properties");
         Properties srcProp = srcCred.prop;
-        System.out.println(secretPath+"/"+tableDefinition.tablesSource+".properties");
-        System.out.println(srcProp);
         JdbcIncrementalSource<String> postgresIncrementalSource =
                 PostgresSourceBuilder.PostgresIncrementalSource.<String>builder()
                         .hostname(srcProp.get("hostname").toString())
@@ -91,6 +88,20 @@ public class PostgresMirrorLogCDC {
                         .splitSize(1) // the split size of each snapshot split
                         .build();
 
+        /*Source Function implementation*/
+//        SourceFunction<String> postgresIncrementalSource = PostgreSQLSource.<String>builder()
+//                .hostname(srcProp.get("hostname").toString())
+//                .port(Integer.parseInt(srcProp.get("port").toString()))
+//                .database(srcProp.get("database").toString())
+//                .tableList(tableDefinition.getStringTableList())
+//                .username(srcProp.get("username").toString())
+//                .password(srcProp.get("password").toString())
+//                .slotName(srcProp.get("slotName").toString())
+//                .debeziumProperties(debeziumProperties)
+//                .decodingPluginName("decoderbufs") // use pgoutput for PostgreSQL 10+
+//                .deserializer(deserializer)
+//                .build();
+
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
@@ -104,6 +115,9 @@ public class PostgresMirrorLogCDC {
 
         DataStream<String> debeziumMessage =
                 env.fromSource(postgresIncrementalSource, WatermarkStrategy.noWatermarks(), "PG").setParallelism(1);
+
+        /*Source Function implementation*/
+//        DataStream<String> debeziumMessage = env.addSource(postgresIncrementalSource);
 
         HashMap<String,DataStream<String>> dataStreamHashMap =new HashMap<>();
 
@@ -121,57 +135,58 @@ public class PostgresMirrorLogCDC {
                     }
             ));
 
-            Properties tableProp = tableDefinition.tableProperties.get(tableName);
+            for (Tables.Target target: tableDefinition.tableProperties.get(tableName)) {
+                if (target.sqlStatement!=null&&!target.sqlStatement.trim().isEmpty()) {
+                    Credentials tgtCred = new Credentials();
+                    tgtCred.setCredentialFromFile(secretPath + "/" + target.targetName + ".properties");
+                    Properties tgtProp = tgtCred.prop;
 
-            Credentials tgtCred = new Credentials();
-            tgtCred.setCredentialFromFile(secretPath+"/"+tableProp.get("target_name")+".properties");
-            Properties tgtProp = tgtCred.prop;
+                    if (Objects.equals(target.targetType, "mirror")) {
+                        List<Tables.Field> fields = target.fields;
+                        dataStreamHashMap.get(tableName)
+                                .addSink(
+                                        JdbcSink.sink(
+                                                target.sqlStatement,
+                                                (statement, message) -> setMergeParams(statement, message, fields),
+                                                JdbcExecutionOptions.builder()
+                                                        .withBatchSize(100)
+                                                        .withBatchIntervalMs(200)
+                                                        .withMaxRetries(1)
+                                                        .build(),
+                                                new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
+                                                        .withUrl(tgtProp.getProperty("databaseUrl"))
+                                                        .withDriverName(tgtProp.getProperty("driver"))
+                                                        .withUsername(tgtProp.getProperty("username"))
+                                                        .withPassword(tgtProp.getProperty("password"))
+                                                        .withConnectionCheckTimeoutSeconds(60)
+                                                        .build()
+                                        )
+                                );
+                    }
 
-            if (tableProp.get("target_table_mirror")!="") {
-                System.out.println(tgtProp);
-                List<Tables.Field> fields = tableDefinition.sqlMergeParameters.get(tableName);
-                dataStreamHashMap.get(tableName)
-                        .addSink(
-                                JdbcSink.sink(
-                                        tableDefinition.sqlMergeStatement.get(tableName),
-                                        (statement, message) -> setMergeParams(statement, message, fields),
-                                        JdbcExecutionOptions.builder()
-                                                .withBatchSize(100)
-                                                .withBatchIntervalMs(200)
-                                                .withMaxRetries(1)
-                                                .build(),
-                                        new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
-                                                .withUrl(tgtProp.getProperty("databaseUrl"))
-                                                .withDriverName(tgtProp.getProperty("driver"))
-                                                .withUsername(tgtProp.getProperty("username"))
-                                                .withPassword(tgtProp.getProperty("password"))
-                                                .withConnectionCheckTimeoutSeconds(60)
-                                                .build()
-                                )
-                        );
-            }
-
-            if (tableProp.get("target_table_log")!="") {
-                List<Tables.Field> fieldsLog = tableDefinition.sqlLogInsertParameters.get(tableName);
-                dataStreamHashMap.get(tableName)
-                            .addSink(
-                                    JdbcSink.sink(
-                                            tableDefinition.sqlLogInsertStatement.get(tableName),
-                                            (statement, message) -> setLogInsertParams(statement,message,fieldsLog),
-                                            JdbcExecutionOptions.builder()
-                                                    .withBatchSize(100)
-                                                    .withBatchIntervalMs(200)
-                                                    .withMaxRetries(1)
-                                                    .build(),
-                                            new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
-                                                    .withUrl(tgtProp.getProperty("databaseUrl"))
-                                                    .withDriverName(tgtProp.getProperty("driver"))
-                                                    .withUsername(tgtProp.getProperty("username"))
-                                                    .withPassword(tgtProp.getProperty("password"))
-                                                    .withConnectionCheckTimeoutSeconds(60)
-                                                    .build()
-                                    )
-                            );
+                    if (Objects.equals(target.targetType, "log"))  {
+                        List<Tables.Field> fields = target.fields;
+                        dataStreamHashMap.get(tableName)
+                                .addSink(
+                                        JdbcSink.sink(
+                                                target.sqlStatement,
+                                                (statement, message) -> setLogInsertParams(statement, message, fields),
+                                                JdbcExecutionOptions.builder()
+                                                        .withBatchSize(100)
+                                                        .withBatchIntervalMs(200)
+                                                        .withMaxRetries(1)
+                                                        .build(),
+                                                new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
+                                                        .withUrl(tgtProp.getProperty("databaseUrl"))
+                                                        .withDriverName(tgtProp.getProperty("driver"))
+                                                        .withUsername(tgtProp.getProperty("username"))
+                                                        .withPassword(tgtProp.getProperty("password"))
+                                                        .withConnectionCheckTimeoutSeconds(60)
+                                                        .build()
+                                        )
+                                );
+                    }
+                }
             }
              // use parallelism 1 for sink to keep message ordering
         }
@@ -190,22 +205,23 @@ public class PostgresMirrorLogCDC {
         long src_ts_ms = message.getJsonObject("source").getJsonNumber("ts_ms").longValue();
 
 
+
         if (Objects.equals(op, "d"))
             row_version = "before";
 
         JsonObject row = message.get(row_version).asJsonObject();
-        System.out.println(row);
+
         for (Tables.Field field:fields) {
-            if (Objects.equals(field.stateField, "none"))
+            if (Objects.equals(field.stateField, "after"))
                 typeMapping(statement, field, row);
             else{
-                if (Objects.equals(field.name, "dbz_op_type"))
+                if (Objects.equals(field.source_name, "dbz_op_type"))
                     statement.setString(field.ord,
                             op);
-                if (Objects.equals(field.name, "dbz_ts_ms"))
+                if (Objects.equals(field.source_name, "dbz_ts_ms"))
                     statement.setLong(field.ord,
                             dbz_ts_ms);
-                if (Objects.equals(field.name, "src_ts_ms"))
+                if (Objects.equals(field.source_name, "src_ts_ms"))
                     statement.setLong(field.ord,
                             src_ts_ms);
             }
@@ -221,98 +237,68 @@ public class PostgresMirrorLogCDC {
         long dbz_ts_ms = message.getJsonNumber("ts_ms").longValue();
         long src_ts_ms = message.getJsonObject("source").getJsonNumber("ts_ms").longValue();
 
-        System.out.println(message);
-
-
-        if (!message.isNull("before")) {
-            System.out.println("BEFORE NOT NULL");
-            JsonObject row_before = message.get("before").asJsonObject();
-            for (Tables.Field field:fields){
-                if  (Objects.equals(field.stateField, "before"))
-                {
-                    typeMapping(statement, field, row_before);
-                }
-            }
-        }
-        else
-        {
-            for (Tables.Field field:fields){
-                if  (Objects.equals(field.stateField, "before"))
-                {
-                    setParameterNull(statement, field);
-                }
-            }
-        }
-
-
-        if (!message.isNull("after")) {
-                JsonObject row_after = message.get("after").asJsonObject();
-                for (Tables.Field field : fields) {
-                    if (Objects.equals(field.stateField, "after")) {
-                        typeMapping(statement, field, row_after);
-                    }
-                }
-            }
-        else
-        {
-            for (Tables.Field field:fields){
-                if  (Objects.equals(field.stateField, "after"))
-                {
-                    setParameterNull(statement, field);
-                }
-            }
-        }
 
         for (Tables.Field field:fields) {
-            if (Objects.equals(field.stateField, "common"))
+            if  (!Objects.equals(field.stateField, "common"))
             {
-                if (Objects.equals(field.name, "dbz_op_type"))
+                if (!message.isNull(field.stateField) ) {
+                    JsonObject row = message.get(field.stateField).asJsonObject();
+                    typeMapping(statement, field, row);
+                }
+                else {
+                    setParameterNull(statement, field);
+                }
+            }
+            else
+            {
+                if (Objects.equals(field.source_name, "dbz_op_type"))
                     statement.setString(field.ord,
                             op);
-                if (Objects.equals(field.name, "dbz_ts_ms"))
+                if (Objects.equals(field.source_name, "dbz_ts_ms"))
                     statement.setLong(field.ord,
                             dbz_ts_ms);
-                if (Objects.equals(field.name, "src_ts_ms"))
+                if (Objects.equals(field.source_name, "src_ts_ms"))
                     statement.setLong(field.ord,
                             src_ts_ms);
             }
         }
 
+
     }
 
     private static void typeMapping(PreparedStatement statement, Tables.Field field, JsonObject row) throws SQLException {
 
-        if (!row.isNull(field.name))
+        if (!row.isNull(field.source_name))
             switch (field.type) {
                 case "smallint":
                 case "smallserial":
                     statement.setShort(field.ord,
-                            row.getJsonNumber(field.name).numberValue().shortValue());
+                            row.getJsonNumber(field.source_name).numberValue().shortValue());
                     break;
                 case "integer":
                 case "serial":
                     statement.setInt(field.ord,
-                            row.getJsonNumber(field.name).intValue());
+                            row.getJsonNumber(field.source_name).intValue());
                     break;
                 case "bigint":
                 case "bigserial":
                     statement.setLong(field.ord,
-                            row.getJsonNumber(field.name).longValue());
+                            row.getJsonNumber(field.source_name).longValue());
                     break;
                 case "real":
                     statement.setFloat(field.ord,
-                            row.getJsonNumber(field.name).numberValue().floatValue());
+                            row.getJsonNumber(field.source_name).numberValue().floatValue());
                     break;
                 case "double":
                     statement.setDouble(field.ord,
-                            row.getJsonNumber(field.name).numberValue().doubleValue());
+                            row.getJsonNumber(field.source_name).numberValue().doubleValue());
                     break;
                 case "decimal":
                 case "numeric":
 
 
                     statement.setBigDecimal(field.ord,
-                            new BigDecimal(row.getString(field.name)));
+                            new BigDecimal(row.getString(field.source_name)));
                     break;
 
                 case "char":
@@ -322,12 +308,13 @@ public class PostgresMirrorLogCDC {
                 case "varchar":
                 case "timestamptz":
                 case "timetz":
+                    System.out.println(row.getString(field.source_name));
                     statement.setString(field.ord,
-                            row.getString(field.name));
+                            row.getString(field.source_name));
                     break;
                  case "boolean":
                     statement.setBoolean(field.ord,
-                            row.getBoolean(field.name));
+                            row.getBoolean(field.source_name));
                     break;
                 case "timestamp":
 
@@ -335,7 +322,7 @@ public class PostgresMirrorLogCDC {
                             Duration.ofNanos(
                                     TimeUnit.MICROSECONDS.toNanos(
                                             Long.parseLong(
-                                                    String.format("%-16s",Long.toString(row.getJsonNumber(field.name).longValue() )).replace(" ","0")
+                                                    String.format("%-16s", row.getJsonNumber(field.source_name).longValue()).replace(" ","0")
                                             )) ) ));
 
 
@@ -345,7 +332,7 @@ public class PostgresMirrorLogCDC {
 
                     java.sql.Date d = new java.sql.Date( Date.from(Instant.EPOCH.plus(
                             Duration.ofDays(
-                                            row.getJsonNumber(field.name).intValue()) ) ).getTime());
+                                            row.getJsonNumber(field.source_name).intValue()) ) ).getTime());
 
 
                     statement.setDate(field.ord, d, Calendar.getInstance(TimeZone.getTimeZone("UTC")));
@@ -356,10 +343,9 @@ public class PostgresMirrorLogCDC {
                             Duration.ofNanos(
                                     TimeUnit.MICROSECONDS.toNanos(
                                             Long.parseLong(
-                                                    String.format("%-11s",Long.toString(row.getJsonNumber(field.name).longValue() )).replace(" ","0")
+                                                    String.format("%-11s", row.getJsonNumber(field.source_name).longValue()).replace(" ","0")
                                             )) ) ) ).getTime());
 
-                    System.out.println("TIME: "+time);
                     statement.setTime(field.ord, time, Calendar.getInstance(TimeZone.getTimeZone("UTC")));
                     break;
 
